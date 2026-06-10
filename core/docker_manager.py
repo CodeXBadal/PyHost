@@ -102,6 +102,8 @@ class DockerManager:
         return cont.id
 
     async def _safe_remove(self, name: str) -> None:
+        if self.client is None:
+            return
         try:
             cont = await self._to_thread(self.client.containers.get, name)
             await self._to_thread(cont.remove, force=True)
@@ -113,6 +115,8 @@ class DockerManager:
     async def start_container(self, project_id: str, run_command: str,
                               env: Dict[str, str]) -> Tuple[bool, str]:
         """Start the container (if stopped) and exec the run command in background."""
+        if self.client is None:
+            return False, "Docker daemon unavailable"
         name = self._container_name(project_id)
         try:
             cont = await self._to_thread(self.client.containers.get, name)
@@ -150,6 +154,8 @@ class DockerManager:
         return True, ""
 
     async def stop_container(self, project_id: str) -> bool:
+        if self.client is None:
+            return False
         name = self._container_name(project_id)
         try:
             cont = await self._to_thread(self.client.containers.get, name)
@@ -171,6 +177,8 @@ class DockerManager:
 
     # ── stats / logs ───────────────────────────────────────
     async def get_stats(self, project_id: str) -> Dict[str, float]:
+        if self.client is None:
+            return {"ram_mb": 0, "cpu_percent": 0, "uptime_seconds": 0, "status": "unavailable"}
         name = self._container_name(project_id)
         try:
             cont = await self._to_thread(self.client.containers.get, name)
@@ -218,6 +226,8 @@ class DockerManager:
 
     async def get_logs(self, project_id: str, lines: int = 200,
                        errors_only: bool = False) -> str:
+        if self.client is None:
+            return "(Docker daemon unavailable)"
         name = self._container_name(project_id)
         try:
             cont = await self._to_thread(self.client.containers.get, name)
@@ -245,6 +255,8 @@ class DockerManager:
 
     async def exec_command(self, project_id: str, cmd: str,
                            workdir: str = "/app") -> Tuple[int, str]:
+        if self.client is None:
+            return 1, "Docker daemon unavailable"
         name = self._container_name(project_id)
         try:
             cont = await self._to_thread(self.client.containers.get, name)
