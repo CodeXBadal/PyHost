@@ -39,7 +39,8 @@ async def _render_panel(update: Update, project_id: str, edit: bool = True) -> N
     if proj is None:
         target = (update.callback_query.message if update.callback_query
                   else update.effective_chat)
-        await target.reply_text(NOT_FOUND) if update.effective_chat else None
+        if update.effective_chat:
+            await update.effective_chat.send_message(NOT_FOUND)
         return
 
     user = await get_or_create_user(proj["user_id"], None)
@@ -77,8 +78,23 @@ async def _render_panel(update: Update, project_id: str, edit: bool = True) -> N
     )
 
 
+async def _edit_or_send(update: Update, text: str,
+                        parse_mode=ParseMode.MARKDOWN, reply_markup=None) -> None:
+    """Edit the callback message if possible, otherwise send a new one."""
+    q = update.callback_query
+    if q is not None:
+        try:
+            await q.message.edit_text(text, parse_mode=parse_mode,
+                                      reply_markup=reply_markup)
+            return
+        except Exception:
+            pass
+    await update.effective_chat.send_message(text, parse_mode=parse_mode,
+                                             reply_markup=reply_markup)
+
+
 # ────────────────────────────────────────────────────────────
-# generic project-panel callback (covers panel_, start_, stop_, restart_, etc.)
+# generic project-panel callback
 # ────────────────────────────────────────────────────────────
 @require_member
 async def project_panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -94,7 +110,7 @@ async def project_panel_callback(update: Update, context: ContextTypes.DEFAULT_T
     action, pid = m.group(1), m.group(2)
     proj = await get_project(pid)
     if proj is None:
-        await q.message.reply_text(NOT_FOUND)
+        await _edit_or_send(update, NOT_FOUND)
         return
 
     # decrypt envs once
@@ -107,11 +123,13 @@ async def project_panel_callback(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     if action == "stop":
+        # Show "stopping…" briefly then render updated panel
+        await _edit_or_send(update, STOP_OK.format(name=proj["name"]),
+                            parse_mode=ParseMode.MARKDOWN)
         await docker_manager.stop_container(pid)
         await update_project(pid, {"status": "stopped"})
-        await q.message.reply_text(STOP_OK.format(name=proj["name"]),
-                                   parse_mode=ParseMode.MARKDOWN)
-        await _render_panel(update, pid, edit=False)
+        # Now edit to the real panel state
+        await _render_panel(update, pid, edit=True)
         return
 
     if action == "start":
@@ -119,12 +137,14 @@ async def project_panel_callback(update: Update, context: ContextTypes.DEFAULT_T
         if ok:
             await update_project(pid, {"status": "running",
                                        "last_started": datetime.now(timezone.utc)})
-            await q.message.reply_text(START_OK.format(name=proj["name"]),
-                                       parse_mode=ParseMode.MARKDOWN)
-            await _render_panel(update, pid, edit=False)
+            # Show START_OK then render updated panel
+            await _edit_or_send(update, START_OK.format(name=proj["name"]),
+                                parse_mode=ParseMode.MARKDOWN)
+            await _render_panel(update, pid, edit=True)
         else:
-            err_type, err_line = extract_error_type(err)
-            await q.message.reply_text(
+            err_type, _ = extract_error_type(err)
+            await _edit_or_send(
+                update,
                 START_FAIL.format(error=err[:400], hint=hint_for(err_type)),
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=start_fail_keyboard(pid),
@@ -135,10 +155,11 @@ async def project_panel_callback(update: Update, context: ContextTypes.DEFAULT_T
         ok, err = await docker_manager.restart_container(pid, proj["run_command"], env_map)
         if ok:
             await update_project(pid, {"status": "running"})
-            await q.message.reply_text(RESTART_OK.format(name=proj["name"]),
-                                       parse_mode=ParseMode.MARKDOWN)
+            await _edit_or_send(update, RESTART_OK.format(name=proj["name"]),
+                                parse_mode=ParseMode.MARKDOWN)
         else:
-            await q.message.reply_text(f"❌ Restart failed: `{err}`",
-                                       parse_mode=ParseMode.MARKDOWN)
-        await _render_panel(update, pid, edit=False)
+            await _edit_or_send(update,
+                                f"❌ Restart failed: `{err}`",
+                                parse_mode=ParseMode.MARKDOWN)
+        await _render_panel(update, pid, edit=True)
         return

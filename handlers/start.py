@@ -71,28 +71,43 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
     await q.answer()
-    await q.message.reply_text(HELP_MSG, parse_mode=ParseMode.MARKDOWN,
-                               reply_markup=back_to_menu_keyboard())
+    # Edit the existing message instead of sending a new one
+    try:
+        await q.message.edit_text(HELP_MSG, parse_mode=ParseMode.MARKDOWN,
+                                  reply_markup=back_to_menu_keyboard())
+    except Exception:
+        await q.message.reply_text(HELP_MSG, parse_mode=ParseMode.MARKDOWN,
+                                   reply_markup=back_to_menu_keyboard())
 
 
 @require_member
 async def support_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
     await q.answer()
-    await q.message.reply_text(SUPPORT_MSG, parse_mode=ParseMode.MARKDOWN,
-                               reply_markup=back_to_menu_keyboard())
+    # Edit the existing message instead of sending a new one
+    try:
+        await q.message.edit_text(SUPPORT_MSG, parse_mode=ParseMode.MARKDOWN,
+                                  reply_markup=back_to_menu_keyboard())
+    except Exception:
+        await q.message.reply_text(SUPPORT_MSG, parse_mode=ParseMode.MARKDOWN,
+                                   reply_markup=back_to_menu_keyboard())
 
 
 @require_member
 async def upgrade_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
     await q.answer()
-    await q.message.reply_text(UPGRADE_MSG, parse_mode=ParseMode.MARKDOWN,
-                               reply_markup=back_to_menu_keyboard())
+    # Edit the existing message instead of sending a new one
+    try:
+        await q.message.edit_text(UPGRADE_MSG, parse_mode=ParseMode.MARKDOWN,
+                                  reply_markup=back_to_menu_keyboard())
+    except Exception:
+        await q.message.reply_text(UPGRADE_MSG, parse_mode=ParseMode.MARKDOWN,
+                                   reply_markup=back_to_menu_keyboard())
 
 
 @require_member
 async def dashboard_global_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Generic ‘Dashboard’ from main menu → show user's project list shortcut."""
+    """Generic 'Dashboard' from main menu → show user's project list shortcut."""
     from handlers.my_projects import my_projects_entry
     await my_projects_entry(update, context)

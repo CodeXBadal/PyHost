@@ -41,7 +41,11 @@ async def analytics_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     pid = q.data.replace("ana_", "", 1)
     proj = await get_project(pid)
     if proj is None:
-        await q.message.reply_text(NOT_FOUND); return
+        try:
+            await q.message.edit_text(NOT_FOUND)
+        except Exception:
+            await q.message.reply_text(NOT_FOUND)
+        return
 
     days = 7
     res = await recent_resources(pid, days=days)
