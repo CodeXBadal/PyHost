@@ -54,7 +54,7 @@ def _markup(rows: List[List[InlineKeyboardButton]]) -> InlineKeyboardMarkup:
 def force_join_keyboard(channel_username: str) -> InlineKeyboardMarkup:
     channel = channel_username.lstrip("@")
     return _markup([
-        [_btn("📢 Join Channel", url=f"https://t.me/{channel}", callback_data="noop")],
+        [_btn("📢 Join Channel", url=f"https://t.me/{channel}", callback_data="noop", style="primary")],
         [_btn("✅ I Joined", "auth_check", style="success")],
     ])
 
@@ -69,13 +69,13 @@ def start_menu_keyboard() -> InlineKeyboardMarkup:
         [_btn("📊 Dashboard",    "dashboard",   style="primary"),
          _btn("💎 Upgrade Plan", "upgrade",     style="success",
               icon_custom_emoji_id=CUSTOM_EMOJI_STAR)],
-        [_btn("❓ Help & Docs",  "help"),
-         _btn("📞 Support",      "support")],
+        [_btn("❓ Help & Docs",  "help",    style="primary"),
+         _btn("📞 Support",      "support", style="primary")],
     ])
 
 
 def back_to_menu_keyboard() -> InlineKeyboardMarkup:
-    return _markup([[_btn("🔙 Back to Menu", "main_menu")]])
+    return _markup([[_btn("🔙 Back to Menu", "main_menu", style="secondary")]])
 
 
 # ────────────────────────────────────────────────────────────
@@ -87,18 +87,18 @@ def cancel_keyboard() -> InlineKeyboardMarkup:
 
 def upload_type_keyboard() -> InlineKeyboardMarkup:
     return _markup([
-        [_btn("📦 Upload ZIP File",       "upload_zip")],
-        [_btn("🐙 Public GitHub URL",     "upload_pubgh")],
-        [_btn("🔒 Private GitHub Repo",   "upload_privgh")],
-        [_btn("🐍 Upload .py File",       "upload_py")],
+        [_btn("📦 Upload ZIP File",       "upload_zip",    style="primary")],
+        [_btn("🐙 Public GitHub URL",     "upload_pubgh",  style="primary")],
+        [_btn("🔒 Private GitHub Repo",   "upload_privgh", style="primary")],
+        [_btn("🐍 Upload .py File",       "upload_py",     style="primary")],
         [_btn("❌ Cancel", "cancel_flow", style="danger")],
     ])
 
 
 def python_version_keyboard() -> InlineKeyboardMarkup:
     return _markup([
-        [_btn("🐍 Python 3.10", "pyver_3.10")],
-        [_btn("🐍 Python 3.11", "pyver_3.11")],
+        [_btn("🐍 Python 3.10", "pyver_3.10", style="secondary")],
+        [_btn("🐍 Python 3.11", "pyver_3.11", style="secondary")],
         [_btn("🐍 Python 3.12 ⭐ Recommended", "pyver_3.12", style="success",
               icon_custom_emoji_id=CUSTOM_EMOJI_STAR)],
     ])
@@ -122,24 +122,24 @@ def project_panel_keyboard(project_id: str, is_running: bool) -> InlineKeyboardM
 
     return _markup([
         [stop_btn if is_running else start_btn,
-         _btn("🔄 Restart",        f"restart_{pid}")],
+         _btn("🔄 Restart",        f"restart_{pid}",   style="secondary")],
         [_btn("📦 Install Deps",   f"deps_{pid}",     style="primary"),
-         _btn("✏️ Edit Run CMD",   f"runcmd_{pid}")],
+         _btn("✏️ Edit Run CMD",   f"runcmd_{pid}",    style="secondary")],
         [_btn("📋 Live Logs",      f"logs_{pid}",     style="primary"),
          _btn("📊 Dashboard",      f"dash_{pid}",     style="primary")],
         [_btn("📈 Analytics",      f"ana_{pid}",      style="primary"),
-         _btn("🔐 ENV Setup",      f"env_{pid}")],
-        [_btn("📁 File Manager",   f"files_{pid}"),
-         _btn("💾 Backup",         f"backup_{pid}")],
-        [_btn("⏰ Scheduler",      f"sched_{pid}"),
-         _btn("🌐 Webhook",        f"webhook_{pid}")],
+         _btn("🔐 ENV Setup",      f"env_{pid}",       style="secondary")],
+        [_btn("📁 File Manager",   f"files_{pid}",     style="secondary"),
+         _btn("💾 Backup",         f"backup_{pid}",    style="secondary")],
+        [_btn("⏰ Scheduler",      f"sched_{pid}",     style="secondary"),
+         _btn("🌐 Webhook",        f"webhook_{pid}",   style="secondary")],
         [_btn("🗑️ Delete",          f"delete_{pid}",  style="danger")],
-        [_btn("🔙 Back to Menu",   "main_menu")],
+        [_btn("🔙 Back to Menu",   "main_menu",        style="secondary")],
     ])
 
 
 def back_to_panel_keyboard(project_id: str) -> InlineKeyboardMarkup:
-    return _markup([[_btn("🔙 Back to Panel", f"panel_{project_id}")]])
+    return _markup([[_btn("🔙 Back to Panel", f"panel_{project_id}", style="secondary")]])
 
 
 # ────────────────────────────────────────────────────────────
@@ -151,19 +151,19 @@ def my_projects_keyboard(projects: list, page: int, total_pages: int,
     for p in projects:
         emoji = "🟢" if p["status"] == "running" else "🔴"
         label = f"{emoji} {p['name']}  ({p['status']})"
-        rows.append([_btn(label, f"panel_{p['project_id']}")])
+        rows.append([_btn(label, f"panel_{p['project_id']}", style="primary")])
 
     nav: List[InlineKeyboardButton] = []
     if page > 1:
-        nav.append(_btn("◀️ Prev", f"mp_page_{page-1}"))
-    nav.append(_btn(f"Page {page}/{total_pages}", "noop"))
+        nav.append(_btn("◀️ Prev", f"mp_page_{page-1}", style="secondary"))
+    nav.append(_btn(f"Page {page}/{total_pages}", "noop", style="secondary"))
     if page < total_pages:
-        nav.append(_btn("Next ▶️", f"mp_page_{page+1}"))
+        nav.append(_btn("Next ▶️", f"mp_page_{page+1}", style="secondary"))
     if nav:
         rows.append(nav)
 
     rows.append([_btn("🆕 New Project", "new_project", style="success"),
-                 _btn("🔙 Menu",        "main_menu")])
+                 _btn("🔙 Menu",        "main_menu", style="secondary")])
     return _markup(rows)
 
 
@@ -176,7 +176,7 @@ def error_report_keyboard(project_id: str) -> InlineKeyboardMarkup:
          _btn("📦 Install Deps", f"deps_{project_id}", style="primary")],
         [_btn("📋 View Logs",    f"logs_{project_id}", style="primary"),
          _btn("⏹️ Stop",          f"stop_{project_id}", style="danger")],
-        [_btn("🔙 Back to Panel", f"panel_{project_id}")],
+        [_btn("🔙 Back to Panel", f"panel_{project_id}", style="secondary")],
     ])
 
 
@@ -186,12 +186,12 @@ def error_report_keyboard(project_id: str) -> InlineKeyboardMarkup:
 def env_menu_keyboard(project_id: str, has_vars: bool) -> InlineKeyboardMarkup:
     rows = [
         [_btn("➕ Add Variable",    f"envadd_{project_id}",  style="success")],
-        [_btn("📤 Upload .env File", f"envup_{project_id}")],
+        [_btn("📤 Upload .env File", f"envup_{project_id}", style="primary")],
     ]
     if has_vars:
-        rows.append([_btn("✏️ Edit Variable",  f"envedit_{project_id}")])
+        rows.append([_btn("✏️ Edit Variable",  f"envedit_{project_id}", style="secondary")])
         rows.append([_btn("🗑️ Delete Variable", f"envdel_{project_id}", style="danger")])
-    rows.append([_btn("🔙 Back to Panel", f"panel_{project_id}")])
+    rows.append([_btn("🔙 Back to Panel", f"panel_{project_id}", style="secondary")])
     return _markup(rows)
 
 
@@ -200,7 +200,7 @@ def env_keys_keyboard(project_id: str, keys: List[str], action: str) -> InlineKe
     rows: List[List[InlineKeyboardButton]] = []
     for k in keys:
         cb = f"envk_{action}_{project_id}_{k}"
-        rows.append([_btn(k, cb)])
+        rows.append([_btn(k, cb, style="primary")])
     rows.append([_btn("❌ Cancel", f"env_{project_id}", style="danger")])
     return _markup(rows)
 
@@ -212,11 +212,11 @@ def logs_keyboard(project_id: str) -> InlineKeyboardMarkup:
     pid = project_id
     return _markup([
         [_btn("🔄 Refresh", f"logs_{pid}", style="primary")],
-        [_btn("📥 Last 100 Lines", f"logd_{pid}_100")],
-        [_btn("📥 Last 500 Lines", f"logd_{pid}_500")],
-        [_btn("📥 Full Log",       f"logd_{pid}_full")],
+        [_btn("📥 Last 100 Lines", f"logd_{pid}_100", style="secondary")],
+        [_btn("📥 Last 500 Lines", f"logd_{pid}_500", style="secondary")],
+        [_btn("📥 Full Log",       f"logd_{pid}_full", style="secondary")],
         [_btn("🚨 Error Logs Only", f"logd_{pid}_err", style="danger")],
-        [_btn("🔙 Back to Panel", f"panel_{pid}")],
+        [_btn("🔙 Back to Panel", f"panel_{pid}", style="secondary")],
     ])
 
 
@@ -227,8 +227,8 @@ def backup_menu_keyboard(project_id: str) -> InlineKeyboardMarkup:
     return _markup([
         [_btn("📤 Create Backup Now", f"bkcreate_{project_id}", style="success")],
         [_btn("📋 My Backups",        f"bklist_{project_id}",   style="primary")],
-        [_btn("📥 Restore from Backup", f"bkrestore_{project_id}")],
-        [_btn("🔙 Back to Panel",     f"panel_{project_id}")],
+        [_btn("📥 Restore from Backup", f"bkrestore_{project_id}", style="secondary")],
+        [_btn("🔙 Back to Panel",     f"panel_{project_id}", style="secondary")],
     ])
 
 
@@ -242,7 +242,7 @@ def backup_list_keyboard(project_id: str, backups: list) -> InlineKeyboardMarkup
             _btn(f"📥 {label}",  f"bkdl_{bid}",  style="primary"),
             _btn("🗑️",          f"bkrm_{bid}",  style="danger"),
         ])
-    rows.append([_btn("🔙 Back", f"backup_{project_id}")])
+    rows.append([_btn("🔙 Back", f"backup_{project_id}", style="secondary")])
     return _markup(rows)
 
 
@@ -253,15 +253,15 @@ def scheduler_menu_keyboard(project_id: str, has_schedules: bool) -> InlineKeybo
     rows = [[_btn("➕ Add Schedule", f"schadd_{project_id}", style="success")]]
     if has_schedules:
         rows.append([_btn("🗑️ Remove Schedule", f"schrm_{project_id}", style="danger")])
-    rows.append([_btn("🔙 Back to Panel", f"panel_{project_id}")])
+    rows.append([_btn("🔙 Back to Panel", f"panel_{project_id}", style="secondary")])
     return _markup(rows)
 
 
 def scheduler_action_keyboard(project_id: str) -> InlineKeyboardMarkup:
     return _markup([
-        [_btn("🔄 Auto Restart",       f"schact_{project_id}_restart")],
-        [_btn("🧹 Clear Logs",          f"schact_{project_id}_clearlogs")],
-        [_btn("📊 Daily Stats Report",  f"schact_{project_id}_stats")],
+        [_btn("🔄 Auto Restart",       f"schact_{project_id}_restart",    style="primary")],
+        [_btn("🧹 Clear Logs",          f"schact_{project_id}_clearlogs", style="secondary")],
+        [_btn("📊 Daily Stats Report",  f"schact_{project_id}_stats",     style="primary")],
         [_btn("❌ Cancel",             f"sched_{project_id}", style="danger")],
     ])
 
@@ -274,12 +274,12 @@ def webhook_keyboard(project_id: str, is_premium: bool) -> InlineKeyboardMarkup:
         return _markup([
             [_btn("💎 Upgrade to Premium", "upgrade", style="success",
                   icon_custom_emoji_id=CUSTOM_EMOJI_STAR)],
-            [_btn("🔙 Back to Panel", f"panel_{project_id}")],
+            [_btn("🔙 Back to Panel", f"panel_{project_id}", style="secondary")],
         ])
     return _markup([
         [_btn("🔌 Set App Port",  f"whport_{project_id}",  style="primary")],
-        [_btn("🔄 Regenerate URL", f"whregen_{project_id}")],
-        [_btn("🔙 Back to Panel", f"panel_{project_id}")],
+        [_btn("🔄 Regenerate URL", f"whregen_{project_id}", style="secondary")],
+        [_btn("🔙 Back to Panel", f"panel_{project_id}", style="secondary")],
     ])
 
 
@@ -289,7 +289,7 @@ def webhook_keyboard(project_id: str, is_premium: bool) -> InlineKeyboardMarkup:
 def delete_confirm_keyboard(project_id: str) -> InlineKeyboardMarkup:
     return _markup([
         [_btn("🗑️ Yes, Delete Forever", f"delyes_{project_id}", style="danger")],
-        [_btn("❌ Cancel",              f"panel_{project_id}")],
+        [_btn("❌ Cancel",              f"panel_{project_id}", style="danger")],
     ])
 
 
@@ -307,7 +307,7 @@ def admin_menu_keyboard() -> InlineKeyboardMarkup:
         [_btn("🐳 All Containers",   "adm_containers", style="primary"),
          _btn("🧹 Cleanup Dead",      "adm_cleanup",    style="danger")],
         [_btn("📋 All Error Reports", "adm_errors",     style="primary")],
-        [_btn("🔙 Exit", "main_menu")],
+        [_btn("🔙 Exit", "main_menu", style="secondary")],
     ])
 
 
@@ -336,7 +336,7 @@ def start_fail_keyboard(project_id: str) -> InlineKeyboardMarkup:
     return _markup([
         [_btn("📦 Install Deps", f"deps_{project_id}", style="primary"),
          _btn("📋 View Logs",    f"logs_{project_id}", style="primary")],
-        [_btn("🔙 Panel", f"panel_{project_id}")],
+        [_btn("🔙 Panel", f"panel_{project_id}", style="secondary")],
     ])
 
 
@@ -351,9 +351,9 @@ def file_manager_keyboard(project_id: str, entries: list, cur_rel: str = "") -> 
         cb = (f"fmcd_{project_id}_{e['rel_path']}"
               if e["is_dir"]
               else f"fmget_{project_id}_{e['rel_path']}")
-        rows.append([_btn(f"{icon} {e['name']}", cb)])
+        rows.append([_btn(f"{icon} {e['name']}", cb, style="primary" if not e["is_dir"] else "secondary")])
     if cur_rel:
         parent = "/".join(cur_rel.rstrip("/").split("/")[:-1])
-        rows.append([_btn("⬆️ Up one folder", f"fmcd_{project_id}_{parent}")])
-    rows.append([_btn("🔙 Back to Panel", f"panel_{project_id}")])
+        rows.append([_btn("⬆️ Up one folder", f"fmcd_{project_id}_{parent}", style="secondary")])
+    rows.append([_btn("🔙 Back to Panel", f"panel_{project_id}", style="secondary")])
     return _markup(rows)
