@@ -128,6 +128,9 @@ async def state_upload_type(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 # ────────────────────────────────────────────────────────────
 # state 3A/3D: file upload (zip or .py)
+# FIX: scan runs in executor (non-blocking), animation and next step
+#      are sent as a NEW message (not reply to status_msg) to avoid
+#      edit-chain failures that caused the flow to stall at step 7.
 # ────────────────────────────────────────────────────────────
 async def state_code_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     np = context.user_data.get("new_project", {})
@@ -146,6 +149,7 @@ async def state_code_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await msg.reply_text(f"❌ File too large (>{MAX_SINGLE_FILE_MB} MB).")
         return CODE_UPLOAD
 
+    # ── Step 1: Upload ──────────────────────────────────────
     status_msg = await msg.reply_text("📤 *Uploading your file...*", parse_mode=ParseMode.MARKDOWN)
     await upload_progress(status_msg)
 
@@ -162,6 +166,7 @@ async def state_code_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     clear_project_dir(tmp_pid)
     dest = project_path(tmp_pid)
 
+    # ── Step 2: Extract ─────────────────────────────────────
     if upload_type == "zip":
         ok, err = extract_zip(local, dest)
         if not ok:
@@ -171,16 +176,30 @@ async def state_code_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         # single .py — drop into project root as main.py
         os.replace(local, os.path.join(dest, "main.py"))
 
-    # security scan animation
-    passed, statuses, reason = await run_security_scan(dest)
-    await scan_animation(status_msg, statuses)
+    # ── Step 3: Security scan ───────────────────────────────
+    # FIX: run_security_scan wraps a synchronous function — run it in
+    # the default executor so it doesn't block the event loop.
+    # This prevents the bot from appearing "frozen" during large ZIPs.
+    loop = asyncio.get_event_loop()
+    passed, statuses, reason = await loop.run_in_executor(
+        None, __import__("core.security", fromlist=["scan_project"]).scan_project, dest
+    )
+
+    # Send scan animation as a FRESH message (not edit of status_msg).
+    # This avoids "message not modified" / edit-chain failures that stalled the flow.
+    scan_msg = await msg.reply_text("🔍 *Scanning files...*", parse_mode=ParseMode.MARKDOWN)
+    await scan_animation(scan_msg, statuses)
+
     if not passed:
-        await status_msg.reply_text(SCAN_FAIL.format(reason=reason), parse_mode=ParseMode.MARKDOWN)
+        await msg.reply_text(SCAN_FAIL.format(reason=reason), parse_mode=ParseMode.MARKDOWN)
         return ConversationHandler.END
 
+    # ── Step 4: Python version select ──────────────────────
     context.user_data["new_project"]["tmp_pid"] = tmp_pid
-    await status_msg.reply_text(
-        "*Step 3/4* — Select Python version:",
+    # FIX: send Python version prompt as a brand-new message so it always
+    # arrives even if scan_msg edit had any issue.
+    await msg.reply_text(
+        "*Step 3/4* — Select Python version 🐍",
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=python_version_keyboard(),
     )
@@ -206,18 +225,23 @@ async def state_github_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await asyncio.sleep(0.3)
 
     dest = project_path(tmp_pid)
-    passed, statuses, reason = await run_security_scan(dest)
+    loop = asyncio.get_event_loop()
+    passed, statuses, reason = await loop.run_in_executor(
+        None, __import__("core.security", fromlist=["scan_project"]).scan_project, dest
+    )
     scan_msg = await update.message.reply_text("🔍 *Scanning files...*",
                                                parse_mode=ParseMode.MARKDOWN)
     await scan_animation(scan_msg, statuses)
     if not passed:
-        await scan_msg.reply_text(SCAN_FAIL.format(reason=reason), parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(SCAN_FAIL.format(reason=reason), parse_mode=ParseMode.MARKDOWN)
         return ConversationHandler.END
 
     context.user_data["new_project"]["tmp_pid"] = tmp_pid
-    await scan_msg.reply_text("*Step 3/4* — Select Python version:",
-                              parse_mode=ParseMode.MARKDOWN,
-                              reply_markup=python_version_keyboard())
+    await update.message.reply_text(
+        "*Step 3/4* — Select Python version 🐍",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=python_version_keyboard(),
+    )
     return PYTHON_VERSION
 
 
@@ -255,18 +279,23 @@ async def state_github_private_url(update: Update, context: ContextTypes.DEFAULT
                                parse_mode=ParseMode.MARKDOWN)
 
     dest = project_path(tmp_pid)
-    passed, statuses, reason = await run_security_scan(dest)
+    loop = asyncio.get_event_loop()
+    passed, statuses, reason = await loop.run_in_executor(
+        None, __import__("core.security", fromlist=["scan_project"]).scan_project, dest
+    )
     scan_msg = await update.message.reply_text("🔍 *Scanning files...*",
                                                parse_mode=ParseMode.MARKDOWN)
     await scan_animation(scan_msg, statuses)
     if not passed:
-        await scan_msg.reply_text(SCAN_FAIL.format(reason=reason), parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(SCAN_FAIL.format(reason=reason), parse_mode=ParseMode.MARKDOWN)
         return ConversationHandler.END
 
     np["tmp_pid"] = tmp_pid
-    await scan_msg.reply_text("*Step 3/4* — Select Python version:",
-                              parse_mode=ParseMode.MARKDOWN,
-                              reply_markup=python_version_keyboard())
+    await update.message.reply_text(
+        "*Step 3/4* — Select Python version 🐍",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=python_version_keyboard(),
+    )
     return PYTHON_VERSION
 
 
