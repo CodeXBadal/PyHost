@@ -12,7 +12,7 @@ from database.models import get_project, get_or_create_user
 from utils.helpers import progress_bar, human_uptime
 from utils.keyboards import back_to_panel_keyboard
 from utils.messages import DASHBOARD_MSG, NOT_FOUND
-from core.docker_manager import docker_manager
+from core.process_manager import process_manager as docker_manager
 from handlers.auth import require_member
 
 

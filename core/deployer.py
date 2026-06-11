@@ -7,7 +7,7 @@ import logging
 from typing import Dict, Tuple
 
 from database.models import create_project, get_or_create_user
-from .docker_manager import docker_manager
+from .process_manager import process_manager as docker_manager
 from .security import scan_project
 
 log = logging.getLogger(__name__)

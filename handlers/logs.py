@@ -13,7 +13,7 @@ from database.models import get_project
 from utils.helpers import truncate, human_size
 from utils.keyboards import logs_keyboard, back_to_panel_keyboard
 from utils.messages import LOGS_HEAD, LOG_SENT, NOT_FOUND
-from core.docker_manager import docker_manager
+from core.process_manager import process_manager as docker_manager
 from handlers.auth import require_member
 
 

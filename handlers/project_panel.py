@@ -23,7 +23,7 @@ from utils.messages import (
     PROJECT_PANEL_MSG, START_OK, START_FAIL, STOP_OK, RESTART_OK,
     NOT_FOUND,
 )
-from core.docker_manager import docker_manager
+from core.process_manager import process_manager as docker_manager
 from core.crypto import decrypt
 from utils.error_formatter import extract_error_type, hint_for
 from handlers.auth import require_member

@@ -11,7 +11,7 @@ from database.models import get_project, delete_project
 from utils.animations import delete_animation
 from utils.keyboards import delete_confirm_keyboard, _btn, _markup
 from utils.messages import DELETE_CONFIRM, DELETE_DONE, NOT_FOUND
-from core.docker_manager import docker_manager
+from core.process_manager import process_manager as docker_manager
 from core.file_handler import clear_project_dir
 from handlers.auth import require_member
 

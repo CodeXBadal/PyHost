@@ -25,7 +25,7 @@ from utils.error_formatter import build_report, write_report_file
 from utils.keyboards import error_report_keyboard
 from utils.messages import CRASH_NOTIFY
 from utils.helpers import human_uptime
-from .docker_manager import docker_manager
+from .process_manager import process_manager as docker_manager
 
 log = logging.getLogger(__name__)
 

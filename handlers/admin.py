@@ -24,7 +24,7 @@ from utils.keyboards import (
     _btn, _markup,
 )
 from utils.messages import ADMIN_PANEL, ADMIN_ONLY
-from core.docker_manager import docker_manager
+from core.process_manager import process_manager as docker_manager
 
 log = logging.getLogger(__name__)
 

@@ -7,10 +7,10 @@ services:
     restart: unless-stopped
     env_file: .env
     volumes:
-      - ./user_data:/app/user_data
-      - /var/run/docker.sock:/var/run/docker.sock      # bot manages sibling containers
+      - ./user_data:/app/user_data    # persist projects, logs, backups
     depends_on:
-      - mongo
+      mongo:
+        condition: service_healthy
     networks: [pyhost_net]
 
   mongo:
@@ -20,6 +20,11 @@ services:
     volumes:
       - mongo_data:/data/db
     networks: [pyhost_net]
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   mongo_data:

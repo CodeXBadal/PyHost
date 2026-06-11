@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 
 from database.models import all_projects, log_resources, update_project
-from .docker_manager import docker_manager
+from .process_manager import process_manager as docker_manager
 
 log = logging.getLogger(__name__)
 

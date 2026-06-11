@@ -69,7 +69,7 @@ from handlers.admin import (
 # ── core ────────────────────────────────────────────────────
 from core.monitor import monitor_loop
 from core.resource_tracker import poll_all_resources
-from core.docker_manager import docker_manager
+from core.process_manager import process_manager as docker_manager
 from core.crypto import decrypt
 
 
@@ -108,7 +108,7 @@ async def run_user_schedule(project_id: str, action: str) -> None:
         envs = {e["key"]: decrypt(e["value"]) for e in await list_envs(project_id)}
         await docker_manager.restart_container(project_id, proj["run_command"], envs)
     elif action == "clearlogs":
-        await docker_manager.exec_command(project_id, ": > /tmp/pyhost.log")
+        await docker_manager.exec_command(project_id, ": > .pyhost.log")
     elif action == "stats":
         # send a daily summary to the user
         from telegram import Bot
