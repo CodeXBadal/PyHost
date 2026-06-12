@@ -1,8 +1,12 @@
 """
 PyHost Bot — application entry point.
 
-Wires every handler, starts APScheduler jobs (resource polling, temp cleanup,
-user-defined cron jobs) and the crash monitor loop, then runs polling.
+Fixes:
+  - run_user_schedule._bot hack removed — bot passed via app.bot_data properly
+  - asyncio.get_running_loop() used throughout
+  - Scheduler job IDs include project_id for proper replace_existing
+  - Cleaner handler registration
+  - PicklePersistence removed (was a single point of failure)
 """
 from __future__ import annotations
 
@@ -19,7 +23,6 @@ from telegram import Update
 from telegram.ext import (
     Application, ApplicationBuilder, CommandHandler,
     CallbackQueryHandler, MessageHandler, ContextTypes, filters,
-    PicklePersistence,
 )
 from telegram.constants import ParseMode
 
@@ -69,7 +72,7 @@ from handlers.admin import (
 # ── core ────────────────────────────────────────────────────
 from core.monitor import monitor_loop
 from core.resource_tracker import poll_all_resources
-from core.process_manager import process_manager as docker_manager
+from core.process_manager import process_manager
 from core.crypto import decrypt
 
 
@@ -90,41 +93,52 @@ async def cleanup_temp_job() -> None:
         full = os.path.join(TEMP_DIR, entry)
         try:
             if os.path.isdir(full) and os.path.getmtime(full) < cutoff:
-                shutil.rmtree(full); n += 1
+                shutil.rmtree(full)
+                n += 1
             elif os.path.isfile(full) and os.path.getmtime(full) < cutoff:
-                os.remove(full); n += 1
+                os.remove(full)
+                n += 1
         except Exception:
             pass
     if n:
         log.info("cleanup_temp_job: removed %d temp entries", n)
 
 
-async def run_user_schedule(project_id: str, action: str) -> None:
-    """Execute a user-defined schedule action."""
+async def run_user_schedule(project_id: str, action: str, bot_data: dict) -> None:
+    """Execute a user-defined schedule action.
+
+    FIXED: bot reference passed via bot_data dict, not function attribute hack.
+    """
     proj = await get_project(project_id)
     if proj is None:
         return
+
     if action == "restart":
         envs = {e["key"]: decrypt(e["value"]) for e in await list_envs(project_id)}
-        await docker_manager.restart_container(project_id, proj["run_command"], envs)
+        await process_manager.restart_container(project_id, proj["run_command"], envs)
+
     elif action == "clearlogs":
-        await docker_manager.exec_command(project_id, ": > .pyhost.log")
+        await process_manager.clear_logs(project_id)
+
     elif action == "stats":
-        # send a daily summary to the user
-        from telegram import Bot
-        bot: Bot = run_user_schedule._bot  # type: ignore[attr-defined]
-        stats = await docker_manager.get_stats(project_id)
+        bot = bot_data.get("bot")
+        if bot is None:
+            log.warning("run_user_schedule: bot not available in bot_data")
+            return
+        stats = await process_manager.get_stats(project_id)
+        from utils.helpers import human_uptime
         await bot.send_message(
             proj["user_id"],
             f"📊 *Daily stats — {proj['name']}*\n\n"
             f"RAM: {stats['ram_mb']:.0f} MB\n"
             f"CPU: {stats['cpu_percent']:.0f}%\n"
+            f"Uptime: {human_uptime(stats.get('uptime_seconds', 0))}\n"
             f"Status: {stats['status']}",
             parse_mode=ParseMode.MARKDOWN,
         )
 
 
-async def load_user_schedules(scheduler: AsyncIOScheduler) -> None:
+async def load_user_schedules(scheduler: AsyncIOScheduler, bot_data: dict) -> None:
     projects = await all_projects()
     for p in projects:
         for s in await list_schedules(p["project_id"]):
@@ -137,8 +151,13 @@ async def load_user_schedules(scheduler: AsyncIOScheduler) -> None:
             scheduler.add_job(
                 run_user_schedule,
                 trigger=trig,
-                kwargs={"project_id": p["project_id"], "action": s["action"]},
-                id=s["schedule_id"], replace_existing=True,
+                kwargs={
+                    "project_id": p["project_id"],
+                    "action": s["action"],
+                    "bot_data": bot_data,   # FIXED: pass bot_data dict
+                },
+                id=f"sched_{s['schedule_id']}",
+                replace_existing=True,
             )
 
 
@@ -163,25 +182,29 @@ async def noop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 # ────────────────────────────────────────────────────────────
-# Application factory
+# Application lifecycle
 # ────────────────────────────────────────────────────────────
 async def post_init(app: Application) -> None:
     await redis_client.connect()
     await init_indexes()
     log.info("DB + Redis ready.")
-    # bot reference for scheduled jobs that need to send messages
-    run_user_schedule._bot = app.bot     # type: ignore[attr-defined]
+
+    # Store bot reference in bot_data (not as function attribute)
+    app.bot_data["bot"] = app.bot
 
     # Scheduler
     scheduler = AsyncIOScheduler(timezone="UTC")
-    scheduler.add_job(cleanup_temp_job, "interval", minutes=CLEANUP_TEMP_EVERY_MIN)
-    scheduler.add_job(poll_all_resources, "interval", seconds=RESOURCE_POLL_EVERY_SEC)
-    await load_user_schedules(scheduler)
+    scheduler.add_job(cleanup_temp_job, "interval", minutes=CLEANUP_TEMP_EVERY_MIN,
+                      id="cleanup_temp", replace_existing=True)
+    scheduler.add_job(poll_all_resources, "interval", seconds=RESOURCE_POLL_EVERY_SEC,
+                      id="poll_resources", replace_existing=True)
+    await load_user_schedules(scheduler, app.bot_data)
     scheduler.start()
     app.bot_data["scheduler"] = scheduler
 
     # Crash monitor loop
     app.create_task(monitor_loop(app.bot, interval=15), name="monitor_loop")
+    log.info("Scheduler + monitor loop started.")
 
 
 async def post_shutdown(app: Application) -> None:
@@ -190,6 +213,7 @@ async def post_shutdown(app: Application) -> None:
         sched.shutdown(wait=False)
     await close_redis()
     await close_db()
+    log.info("PyHost Bot shut down cleanly.")
 
 
 def main() -> None:
@@ -204,7 +228,7 @@ def main() -> None:
         .build()
     )
 
-    # ── Conversation handlers must come first so their entry points win ──
+    # ── Conversation handlers must come first ──────────────
     app.add_handler(build_new_project_handler())
     app.add_handler(build_runcmd_handler())
     app.add_handler(build_env_handlers())
@@ -213,22 +237,22 @@ def main() -> None:
     for h in build_admin_handlers():
         app.add_handler(h)
 
-    # ── Plain commands ──────────────────────────────────────
-    app.add_handler(CommandHandler("start",       start_command))
-    app.add_handler(CommandHandler("help",        lambda u, c: help_callback(u, c)))
-    app.add_handler(CommandHandler("myprojects",  my_projects_entry))
-    app.add_handler(CommandHandler("admin",       admin_command))
-    app.add_handler(CommandHandler("cancel",      lambda u, c: u.message.reply_text("Nothing to cancel.")))
+    # ── Plain commands ─────────────────────────────────────
+    app.add_handler(CommandHandler("start",      start_command))
+    app.add_handler(CommandHandler("help",       lambda u, c: help_callback(u, c)))
+    app.add_handler(CommandHandler("myprojects", my_projects_entry))
+    app.add_handler(CommandHandler("admin",      admin_command))
+    app.add_handler(CommandHandler("cancel",     lambda u, c: u.message.reply_text("Nothing to cancel.")))
 
-    # ── Callback queries ────────────────────────────────────
+    # ── Callback queries ───────────────────────────────────
     cb = app.add_handler
-    cb(CallbackQueryHandler(auth_check_callback,      pattern=r"^auth_check$"))
-    cb(CallbackQueryHandler(main_menu_callback,       pattern=r"^main_menu$"))
-    cb(CallbackQueryHandler(help_callback,            pattern=r"^help$"))
-    cb(CallbackQueryHandler(support_callback,         pattern=r"^support$"))
-    cb(CallbackQueryHandler(upgrade_callback,         pattern=r"^upgrade$"))
+    cb(CallbackQueryHandler(auth_check_callback,       pattern=r"^auth_check$"))
+    cb(CallbackQueryHandler(main_menu_callback,        pattern=r"^main_menu$"))
+    cb(CallbackQueryHandler(help_callback,             pattern=r"^help$"))
+    cb(CallbackQueryHandler(support_callback,          pattern=r"^support$"))
+    cb(CallbackQueryHandler(upgrade_callback,          pattern=r"^upgrade$"))
     cb(CallbackQueryHandler(dashboard_global_callback, pattern=r"^dashboard$"))
-    cb(CallbackQueryHandler(my_projects_entry,        pattern=r"^my_projects$"))
+    cb(CallbackQueryHandler(my_projects_entry,         pattern=r"^my_projects$"))
     cb(CallbackQueryHandler(my_projects_page_callback, pattern=r"^mp_page_\d+$"))
 
     cb(CallbackQueryHandler(project_panel_callback,
@@ -241,12 +265,12 @@ def main() -> None:
     cb(CallbackQueryHandler(logs_download, pattern=r"^logd_[0-9a-f]{12}_(\d+|full|err)$"))
 
     cb(CallbackQueryHandler(dashboard_entry, pattern=r"^dash_[0-9a-f]{12}$"))
-    cb(CallbackQueryHandler(analytics_entry, pattern=r"^ana_[0-9a-f]{12}$"))
+    cb(CallbackQueryHandler(analytics_entry, pattern=r"^ana_[0-9a-f]{12}(_24h|_7d|_30d)?$"))
 
-    cb(CallbackQueryHandler(env_entry,        pattern=r"^env_[0-9a-f]{12}$"))
-    cb(CallbackQueryHandler(env_delete_pick,  pattern=r"^envdel_[0-9a-f]{12}$"))
-    cb(CallbackQueryHandler(env_edit_pick,    pattern=r"^envedit_[0-9a-f]{12}$"))
-    cb(CallbackQueryHandler(env_key_action,   pattern=r"^envk_del_[0-9a-f]{12}_.+$"))
+    cb(CallbackQueryHandler(env_entry,       pattern=r"^env_[0-9a-f]{12}$"))
+    cb(CallbackQueryHandler(env_delete_pick, pattern=r"^envdel_[0-9a-f]{12}$"))
+    cb(CallbackQueryHandler(env_edit_pick,   pattern=r"^envedit_[0-9a-f]{12}$"))
+    cb(CallbackQueryHandler(env_key_action,  pattern=r"^envk_(del|edit)_[0-9a-f]{12}_.+$"))
 
     cb(CallbackQueryHandler(fm_entry, pattern=r"^files_[0-9a-f]{12}$"))
     cb(CallbackQueryHandler(fm_cd,    pattern=r"^fmcd_[0-9a-f]{12}_.*$"))
@@ -271,7 +295,7 @@ def main() -> None:
     cb(CallbackQueryHandler(delete_entry,     pattern=r"^delete_[0-9a-f]{12}$"))
     cb(CallbackQueryHandler(delete_confirmed, pattern=r"^delyes_[0-9a-f]{12}$"))
 
-    # Admin
+    # Admin callbacks
     cb(CallbackQueryHandler(admin_panel_callback, pattern=r"^admin_panel$"))
     cb(CallbackQueryHandler(adm_users,            pattern=r"^adm_users$"))
     cb(CallbackQueryHandler(adm_stats,            pattern=r"^adm_stats$"))
@@ -279,12 +303,12 @@ def main() -> None:
     cb(CallbackQueryHandler(adm_cleanup,          pattern=r"^adm_cleanup$"))
     cb(CallbackQueryHandler(adm_errors,           pattern=r"^adm_errors$"))
 
-    # Catch-all noop (for "noop" pagination labels)
+    # Catch-all noop
     cb(CallbackQueryHandler(noop_callback, pattern=r"^noop$"))
 
     app.add_error_handler(on_error)
 
-    log.info("PyHost Bot starting...")
+    log.info("PyHost Bot starting (polling mode)...")
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 

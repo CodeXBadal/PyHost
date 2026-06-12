@@ -1,34 +1,47 @@
-"""APScheduler-driven RAM/CPU/uptime polling for every running project."""
+"""
+APScheduler-driven RAM/CPU/uptime polling for every running project.
+
+Fixes:
+  - psutil calls run in thread executor (non-blocking)
+  - Only polls RUNNING projects (skip stopped/crashed)
+  - asyncio.get_running_loop() instead of deprecated version
+"""
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from database.models import all_projects, log_resources, update_project
-from .process_manager import process_manager as docker_manager
+from .process_manager import process_manager
 
 log = logging.getLogger(__name__)
 
 
 async def poll_all_resources() -> None:
-    """Periodic job — poll every project's container, write to resource_logs."""
+    """Periodic job — poll every running project's stats, write to resource_logs."""
     try:
         projects = await all_projects()
     except Exception as exc:
         log.exception("poll_all_resources: db read failed: %s", exc)
         return
 
+    loop = asyncio.get_running_loop()
+
     for p in projects:
         if p.get("status") != "running":
             continue
+        pid = p["project_id"]
         try:
-            stats = await docker_manager.get_stats(p["project_id"])
+            # get_stats uses psutil in executor internally
+            stats = await process_manager.get_stats(pid)
             await log_resources(
-                p["project_id"],
+                pid,
                 ram_mb=float(stats["ram_mb"]),
                 cpu_pct=float(stats["cpu_percent"]),
             )
-            # If docker says the container is no longer running, update DB
+            # If process is no longer running, sync DB
             if stats["status"] not in ("running", "restarting"):
-                await update_project(p["project_id"], {"status": stats["status"]})
+                await update_project(pid, {"status": stats["status"]})
+                log.info("poll_all_resources: project %s is now %s, updated DB", pid, stats["status"])
         except Exception as exc:
-            log.debug("resource poll error for %s: %s", p["project_id"], exc)
+            log.debug("resource poll error for %s: %s", pid, exc)

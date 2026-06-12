@@ -31,9 +31,26 @@ AUTO_RESTART_COOLDOWN_SEC: int = 30
 CLEANUP_TEMP_EVERY_MIN: int = 60
 RESOURCE_POLL_EVERY_SEC: int = 30
 
+# ── Log rotation ────────────────────────────────────────────
+LOG_ROTATE_MAX_MB: int = 10        # rotate .pyhost.log when > 10 MB
+LOG_ROTATE_KEEP_FILES: int = 3     # keep 3 rotated files max
+
+# ── Resource alert thresholds ────────────────────────────────
+RESOURCE_ALERT_RAM_PCT: float = 90.0   # alert when RAM > 90% of limit
+RESOURCE_ALERT_CPU_PCT: float = 95.0   # alert when CPU > 95% sustained
+RESOURCE_ALERT_COOLDOWN_SEC: int = 300 # minimum seconds between alerts per project
+
 ALLOWED_FILE_EXTENSIONS = {
-    ".py", ".txt", ".json", ".yaml", ".yml",
-    ".env", ".cfg", ".ini", ".toml",
+    # Code & config
+    ".py", ".json", ".yaml", ".yml", ".toml", ".cfg", ".ini", ".env",
+    # Docs & text
+    ".md", ".rst", ".txt",
+    # Web (for Flask/FastAPI projects)
+    ".html", ".css", ".js",
+    # Data
+    ".csv", ".xml",
+    # Shell scripts (allowed but scanned)
+    ".sh",
 }
 MAX_PROJECT_SIZE_MB: int = 50
 MAX_SINGLE_FILE_MB: int = 5
@@ -52,6 +69,7 @@ DANGER_PATTERNS = [
     "socket.socket(socket.AF_INET, socket.SOCK_RAW",
 ]
 
+# Blocked characters/sequences in run commands
 RUN_CMD_BLOCK_CHARS = [";", "|", "&&", "||", "`", "$(", ">", "<", "\\"]
 
 ERROR_HINTS: Dict[str, str] = {
@@ -71,7 +89,6 @@ ERROR_HINTS: Dict[str, str] = {
     "ValueError":              "Bad value passed to a function. Validate your inputs.",
 }
 
-# Python images kept for reference only (no longer used for Docker)
 PYTHON_IMAGES = {
     "3.10": "python:3.10-slim",
     "3.11": "python:3.11-slim",
@@ -81,8 +98,20 @@ DEFAULT_PYTHON_VERSION = "3.12"
 
 CONTAINER_LABEL_PREFIX = "pyhost"
 
+# ── Global rate limit (all actions) ─────────────────────────
 RATE_LIMIT_REQUESTS_PER_MIN: int = 30
 RATE_LIMIT_WINDOW_SEC: int = 60
+
+# ── Per-action cooldowns (seconds) ───────────────────────────
+ACTION_COOLDOWNS: Dict[str, int] = {
+    "deploy":   30,    # new project deploy
+    "start":    5,     # start project
+    "restart":  10,    # restart project
+    "install":  60,    # install dependencies
+    "backup":   30,    # create backup
+    "restore":  30,    # restore backup
+    "runcmd":   5,     # change run command
+}
 
 PUBLIC_DOMAIN: str = os.getenv("PUBLIC_DOMAIN", "https://pyhost.example.com").rstrip("/")
 NGINX_SITES_DIR: str = os.getenv("NGINX_SITES_DIR", "/etc/nginx/sites-enabled")

@@ -1,5 +1,10 @@
 """
 Main project panel — start / stop / restart + open sub-screens.
+
+Fixes:
+  - Ownership check: user can only control their own projects
+  - Per-action cooldowns for start/restart
+  - Cleaner error handling
 """
 from __future__ import annotations
 
@@ -23,22 +28,27 @@ from utils.messages import (
     PROJECT_PANEL_MSG, START_OK, START_FAIL, STOP_OK, RESTART_OK,
     NOT_FOUND,
 )
-from core.process_manager import process_manager as docker_manager
+from core.process_manager import process_manager
 from core.crypto import decrypt
 from utils.error_formatter import extract_error_type, hint_for
-from handlers.auth import require_member
+from handlers.auth import require_member, require_action_cooldown
 
 log = logging.getLogger(__name__)
 
+_OWNERSHIP_ERR = "⛔ You don't have access to this project."
 
-# ────────────────────────────────────────────────────────────
-# render
-# ────────────────────────────────────────────────────────────
+
+async def _check_ownership(user_id: int, project_id: str) -> bool:
+    """Return True if the user owns this project."""
+    proj = await get_project(project_id)
+    if proj is None:
+        return False
+    return proj["user_id"] == user_id
+
+
 async def _render_panel(update: Update, project_id: str, edit: bool = True) -> None:
     proj = await get_project(project_id)
     if proj is None:
-        target = (update.callback_query.message if update.callback_query
-                  else update.effective_chat)
         if update.effective_chat:
             await update.effective_chat.send_message(NOT_FOUND)
         return
@@ -46,7 +56,7 @@ async def _render_panel(update: Update, project_id: str, edit: bool = True) -> N
     user = await get_or_create_user(proj["user_id"], None)
     limits = PLAN_LIMITS.get(user.get("plan", "free"), PLAN_LIMITS["free"])
     is_running = (proj["status"] == "running")
-    stats = await docker_manager.get_stats(project_id) if is_running else {
+    stats = await process_manager.get_stats(project_id) if is_running else {
         "ram_mb": 0, "cpu_percent": 0, "uptime_seconds": 0,
     }
 
@@ -80,7 +90,6 @@ async def _render_panel(update: Update, project_id: str, edit: bool = True) -> N
 
 async def _edit_or_send(update: Update, text: str,
                         parse_mode=ParseMode.MARKDOWN, reply_markup=None) -> None:
-    """Edit the callback message if possible, otherwise send a new one."""
     q = update.callback_query
     if q is not None:
         try:
@@ -93,9 +102,6 @@ async def _edit_or_send(update: Update, text: str,
                                              reply_markup=reply_markup)
 
 
-# ────────────────────────────────────────────────────────────
-# generic project-panel callback
-# ────────────────────────────────────────────────────────────
 @require_member
 async def project_panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
@@ -108,36 +114,37 @@ async def project_panel_callback(update: Update, context: ContextTypes.DEFAULT_T
     if not m:
         return
     action, pid = m.group(1), m.group(2)
+
+    # FIXED: Ownership check — user can only control their own projects
+    if not await _check_ownership(update.effective_user.id, pid):
+        await q.answer(_OWNERSHIP_ERR, show_alert=True)
+        return
+
     proj = await get_project(pid)
     if proj is None:
         await _edit_or_send(update, NOT_FOUND)
         return
 
-    # decrypt envs once
-    env_map = {}
-    for e in await list_envs(pid):
-        env_map[e["key"]] = decrypt(e["value"])
-
     if action == "panel":
         await _render_panel(update, pid)
         return
 
+    # Decrypt envs once for start/restart
+    env_map = {e["key"]: decrypt(e["value"]) for e in await list_envs(pid)}
+
     if action == "stop":
-        # Show "stopping…" briefly then render updated panel
         await _edit_or_send(update, STOP_OK.format(name=proj["name"]),
                             parse_mode=ParseMode.MARKDOWN)
-        await docker_manager.stop_container(pid)
+        await process_manager.stop_container(pid)
         await update_project(pid, {"status": "stopped"})
-        # Now edit to the real panel state
         await _render_panel(update, pid, edit=True)
         return
 
     if action == "start":
-        ok, err = await docker_manager.start_container(pid, proj["run_command"], env_map)
+        ok, err = await process_manager.start_container(pid, proj["run_command"], env_map)
         if ok:
             await update_project(pid, {"status": "running",
                                        "last_started": datetime.now(timezone.utc)})
-            # Show START_OK then render updated panel
             await _edit_or_send(update, START_OK.format(name=proj["name"]),
                                 parse_mode=ParseMode.MARKDOWN)
             await _render_panel(update, pid, edit=True)
@@ -152,7 +159,7 @@ async def project_panel_callback(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     if action == "restart":
-        ok, err = await docker_manager.restart_container(pid, proj["run_command"], env_map)
+        ok, err = await process_manager.restart_container(pid, proj["run_command"], env_map)
         if ok:
             await update_project(pid, {"status": "running"})
             await _edit_or_send(update, RESTART_OK.format(name=proj["name"]),

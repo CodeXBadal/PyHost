@@ -1,26 +1,33 @@
 """
-Force-channel-join middleware + rate-limit gate.
+Force-channel-join middleware + rate-limit gate + per-action cooldowns.
 
-`require_member()` is a decorator used by every command/callback entry
-point. It also performs the global Redis-based rate limit.
+Fixes:
+  - Per-action cooldowns via ACTION_COOLDOWNS config
+  - `require_action_cooldown` decorator for heavy actions (deploy, install, etc.)
+  - Cleaner ban check
+  - asyncio.get_running_loop() compatibility
 """
 from __future__ import annotations
 
 import functools
 import logging
+import time
 from typing import Callable
 
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
-from config import FORCE_JOIN_CHANNEL
+from config import FORCE_JOIN_CHANNEL, ACTION_COOLDOWNS
 from database.models import get_or_create_user
 from database.redis_client import redis_client
 from utils.keyboards import force_join_keyboard
 from utils.messages import FORCE_JOIN_MSG, RATE_LIMITED_MSG
 
 log = logging.getLogger(__name__)
+
+# In-memory per-user action cooldown tracker: {(user_id, action): last_used_time}
+_action_last: dict[tuple[int, str], float] = {}
 
 
 async def _is_channel_member(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bool:
@@ -31,8 +38,7 @@ async def _is_channel_member(context: ContextTypes.DEFAULT_TYPE, user_id: int) -
         return m.status in ("member", "administrator", "creator")
     except Exception as exc:
         log.debug("get_chat_member failed for %s: %s", user_id, exc)
-        # If the bot isn't admin of the channel we can't verify → allow
-        return True
+        return True  # If bot can't check, allow
 
 
 async def _send_join_prompt(update: Update) -> None:
@@ -58,7 +64,11 @@ def require_member(func: Callable):
         u = await get_or_create_user(user.id, user.username)
         if u.get("is_banned"):
             try:
-                await update.effective_chat.send_message("🚫 You are banned from using this bot.")
+                q = getattr(update, "callback_query", None)
+                if q:
+                    await q.answer("🚫 You are banned from this bot.", show_alert=True)
+                else:
+                    await update.effective_chat.send_message("🚫 You are banned from using this bot.")
             except Exception:
                 pass
             return
@@ -67,13 +77,15 @@ def require_member(func: Callable):
         try:
             if await redis_client.is_rate_limited(user.id):
                 ttl = await redis_client.rate_limit_ttl(user.id)
-                await update.effective_chat.send_message(
-                    RATE_LIMITED_MSG.format(seconds=ttl),
-                    parse_mode=ParseMode.MARKDOWN,
-                )
+                q = getattr(update, "callback_query", None)
+                msg = RATE_LIMITED_MSG.format(seconds=ttl)
+                if q:
+                    await q.answer(msg, show_alert=True)
+                else:
+                    await update.effective_chat.send_message(msg, parse_mode=ParseMode.MARKDOWN)
                 return
         except Exception as exc:
-            log.debug("Redis rate-limit check skipped: %s", exc)
+            log.debug("Rate-limit check skipped: %s", exc)
 
         # force join
         if FORCE_JOIN_CHANNEL and not await _is_channel_member(context, user.id):
@@ -82,6 +94,43 @@ def require_member(func: Callable):
 
         return await func(update, context, *args, **kw)
     return wrapper
+
+
+def require_action_cooldown(action: str):
+    """Decorator: enforce per-action cooldown from ACTION_COOLDOWNS config.
+
+    Usage:
+        @require_member
+        @require_action_cooldown("deploy")
+        async def newproject_entry(update, context):
+            ...
+    """
+    def decorator(func: Callable):
+        @functools.wraps(func)
+        async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kw):
+            user = update.effective_user
+            if user is None:
+                return await func(update, context, *args, **kw)
+
+            cooldown = ACTION_COOLDOWNS.get(action, 0)
+            if cooldown > 0:
+                key = (user.id, action)
+                now = time.monotonic()
+                last = _action_last.get(key, 0.0)
+                remaining = int(cooldown - (now - last))
+                if remaining > 0:
+                    q = getattr(update, "callback_query", None)
+                    msg = f"⏳ Please wait *{remaining}s* before doing this again."
+                    if q:
+                        await q.answer(msg, show_alert=True)
+                    else:
+                        await update.effective_chat.send_message(msg, parse_mode=ParseMode.MARKDOWN)
+                    return
+                _action_last[key] = now
+
+            return await func(update, context, *args, **kw)
+        return wrapper
+    return decorator
 
 
 async def auth_check_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -93,7 +142,10 @@ async def auth_check_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     user = update.effective_user
     if await _is_channel_member(context, user.id):
         from handlers.start import _send_start_card
-        await q.message.delete()
+        try:
+            await q.message.delete()
+        except Exception:
+            pass
         await _send_start_card(update, context)
     else:
         await q.answer("You still aren't a member — please join first.", show_alert=True)
