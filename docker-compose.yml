@@ -1,0 +1,34 @@
+version: "3.9"
+
+services:
+  bot:
+    build: .
+    container_name: pyhost_bot
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./user_data:/app/user_data    # persist projects, logs, backups
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks: [pyhost_net]
+
+  mongo:
+    image: mongo:7
+    container_name: pyhost_mongo
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    networks: [pyhost_net]
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mongo_data:
+
+networks:
+  pyhost_net:
+    driver: bridge
